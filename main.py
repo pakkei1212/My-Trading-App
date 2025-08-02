@@ -22,7 +22,7 @@ def get_db():
 # ========== Root ==========
 @app.get("/")
 def root():
-    return {"message": "Welcome to the Two-Table Trading Journal API"}
+    return {"message": "Welcome to the Trading Journal API"}
 
 
 # ========== Entry Routes ==========

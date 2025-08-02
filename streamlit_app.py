@@ -48,6 +48,13 @@ with tab1:
             with st.expander(header, expanded=False):
                 col1, col2, col3 = st.columns(3)
 
+                if t["exits"]:
+                    gain_pct = f"{100 * (t.get('actual_gain_loss_pct') or 0):.2f}%"
+                    pnl = f"{t.get('actual_gain_loss') or 0.0:,.2f} {currency}"
+                    holding_days = t.get('holding_days', 'N.A.')
+                else:
+                    gain_pct = pnl = holding_days = "N.A."
+
                 with col1:
                     st.markdown(f"**Market**: {t['market']}")
                     st.markdown(f"**Entry**: {t['entry_price']} {currency}")
@@ -57,18 +64,18 @@ with tab1:
                 with col2:
                     st.markdown(f"**Total Cost**: {t.get('total_cost', 0.0):,.2f} {currency}")
                     st.markdown(f"**Expected RR**: {t.get('rr_ratio', '-')}")
-                    st.markdown(f"**Gain %**: {100 * (t.get('actual_gain_loss_pct') or 0):.2f}%")
-                    st.markdown(f"**PnL**: {t.get('actual_gain_loss') or 0.0:,.2f} {currency}")
+                    st.markdown(f"**Gain %**: {gain_pct}")
+                    st.markdown(f"**PnL**: {pnl}")
 
                 with col3:
-                    st.markdown(f"**Holding Days**: {t.get('holding_days', '-')}")
+                    st.markdown(f"**Holding Days**: {holding_days}")
                     st.markdown(f"**Qty Remaining**: {t['remaining_qty']} / {t['qty']}")
 
                 # Inline close form
                 if t["is_open"]:
                     with st.form(f"close_form_{t['id']}"):
                         st.markdown("**📉 Close This Position**")
-                        exit_qty = st.number_input("Exit Qty", min_value=1, value=int(t['qty']),
+                        exit_qty = st.number_input("Exit Qty", min_value=1, value=int(t['remaining_qty']),
                                                    max_value=t["remaining_qty"], key=f"qty_{t['id']}")
                         exit_price = st.number_input("Exit Price", min_value=0.0, value=float(t['entry_price']),
                                                      format="%.2f", step=1.0,
@@ -108,18 +115,51 @@ with tab1:
         entry_date = col2.date_input("Entry Date", value=date.today())
         entry_price = col1.number_input("Entry Price", min_value=0.01, format="%.2f")
         qty = col2.number_input("Quantity", min_value=1)
-        stop_loss = col1.number_input("Stop Loss Price", min_value=0.01, format="%.2f")
-        target_price = col2.number_input("Target Price", min_value=0.01, format="%.2f")
+        stop_loss_input = col1.text_input("Stop Loss Price (Optional)", value="")
+        target_price_input = col2.text_input("Target Price (Optional)", value="")
 
         submitted = st.form_submit_button("Add Entry")
         if submitted:
             valid = True
-            if position == "Long" and not (stop_loss < entry_price < target_price):
-                st.error("For Long: Stop < Entry < Target")
-                valid = False
-            elif position == "Short" and not (stop_loss > entry_price > target_price):
-                st.error("For Short: Stop > Entry > Target")
-                valid = False
+            stop_loss = None
+            target_price = None
+
+            # Parse and validate Stop Loss
+            if stop_loss_input.strip() != "":
+                try:
+                    stop_loss = float(stop_loss_input)
+                    if position == "Long" and stop_loss >= entry_price:
+                        st.error("For Long, Stop Loss must be less than Entry Price.")
+                        valid = False
+                    elif position == "Short" and stop_loss <= entry_price:
+                        st.error("For Short, Stop Loss must be greater than Entry Price.")
+                        valid = False
+                except ValueError:
+                    st.error("Stop Loss must be a valid number.")
+                    valid = False
+
+            # Parse and validate Target Price
+            if target_price_input.strip() != "":
+                try:
+                    target_price = float(target_price_input)
+                    if position == "Long" and target_price <= entry_price:
+                        st.error("For Long, Target Price must be greater than Entry Price.")
+                        valid = False
+                    elif position == "Short" and target_price >= entry_price:
+                        st.error("For Short, Target Price must be less than Entry Price.")
+                        valid = False
+                except ValueError:
+                    st.error("Target Price must be a valid number.")
+                    valid = False
+
+            # Validate full range if both provided
+            if valid and stop_loss is not None and target_price is not None:
+                if position == "Long" and not (stop_loss < entry_price < target_price):
+                    st.error("For Long: Stop Loss < Entry Price < Target Price.")
+                    valid = False
+                elif position == "Short" and not (stop_loss > entry_price > target_price):
+                    st.error("For Short: Stop Loss > Entry Price > Target Price.")
+                    valid = False
 
             if valid:
                 new_trade = {
@@ -135,8 +175,9 @@ with tab1:
                 resp = requests.post(f"{API_URL}/entries", json=new_trade)
                 if resp.status_code == 200:
                     st.success("Trade entry added!")
+                    st.rerun()
                 else:
-                    st.error("Failed to add trade")
+                    st.error(f"Failed to add trade: {resp.text}")
 
 # ===== Tab 2: Monthly Performance =====
 with tab2:
@@ -168,7 +209,7 @@ with tab2:
 
             # Pivot so month names are columns
             pivot_df = filtered_df.set_index("Month")
-            pivot_df = pivot_df.sort_index()  # Jan to Dec order
+            # pivot_df = pivot_df.sort_index()  # Jan to Dec order
             pivot_df = pivot_df.transpose()  # Metrics as rows
 
             formatted_data = {}
