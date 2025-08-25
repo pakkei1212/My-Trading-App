@@ -134,12 +134,3 @@ Open:
 
 ### 🔍 Trade Filters
 ![Filters](./screenshots/filters.png)
-
----
-
-Covers:
-- Entry creation
-- Partial exits
-- Full exit → closes trade automatically
-
----
